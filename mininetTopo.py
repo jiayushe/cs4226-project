@@ -1,10 +1,9 @@
 '''
-Please add your name:
-Please add your matric number: 
+Please add your name: She Jiayu
+Please add your matric number: A0188314B
 '''
 
 import os
-import sys
 import atexit
 from mininet.net import Mininet
 from mininet.log import setLogLevel, info
@@ -16,41 +15,66 @@ from mininet.node import RemoteController
 net = None
 
 class TreeTopo(Topo):
-			
-	def __init__(self):
-		# Initialize topology
-		Topo.__init__(self)        
-	
-	# You can write other functions as you need.
-
-	# Add hosts
-    # > self.addHost('h%d' % [HOST NUMBER])
-
-	# Add switches
-    # > sconfig = {'dpid': "%016x" % [SWITCH NUMBER]}
-    # > self.addSwitch('s%d' % [SWITCH NUMBER], **sconfig)
-
-	# Add links
-	# > self.addLink([HOST1], [HOST2])
+    def __init__(self):
+        # Initialize topology
+        Topo.__init__(self)
+        self.bandwidths = {}
+        self.parseTopo("topology.in")
+    
+    def parseTopo(self, filename):
+        file = open(filename, "r")
+        line = file.readline().strip()
+        n_host, n_switch, n_link = line.split(" ")
+        # Add hosts
+        for i in range(int(n_host)):
+            self.addHost("h%d" % (i + 1))
+        # Add switches
+        for i in range(int(n_switch)):
+            sconfig = {"dpid": "%016x" % (i + 1)}
+            self.addSwitch("s%d" % (i + 1), **sconfig)
+        # Add links
+        for i in range(int(n_link)):
+            line = file.readline().strip()
+            src, dst, bw = line.split(",")
+            self.addLink(src, dst)
+            if src not in self.bandwidths:
+                self.bandwidths[src] = {}
+            self.bandwidths[src][dst] = int(bw)
+            if dst not in self.bandwidths:
+                self.bandwidths[dst] = {}
+            self.bandwidths[dst][src] = int(bw)
 
 def startNetwork():
     info('** Creating the tree network\n')
     topo = TreeTopo()
 
     global net
-    net = Mininet(topo=topo, link = Link,
-                  controller=lambda name: RemoteController(name, ip='SERVER IP'),
+    net = Mininet(topo=topo, link=Link,
+                  controller=lambda name: RemoteController(name, ip="192.168.56.101"),
                   listenPort=6633, autoSetMacs=True)
 
     info('** Starting the network\n')
     net.start()
 
-    # Create QoS Queues
-    # > os.system('sudo ovs-vsctl -- set Port [INTERFACE] qos=@newqos \
-    #            -- --id=@newqos create QoS type=linux-htb other-config:max-rate=[LINK SPEED] queues=0=@q0,1=@q1,2=@q2 \
-    #            -- --id=@q0 create queue other-config:max-rate=[LINK SPEED] other-config:min-rate=[LINK SPEED] \
-    #            -- --id=@q1 create queue other-config:min-rate=[X] \
-    #            -- --id=@q2 create queue other-config:max-rate=[Y]')
+    for switch in net.switches:
+        for interface in switch.intfList():
+            if interface.link:
+                node1 = interface.link.intf1.node
+                node2 = interface.link.intf2.node
+                if node1 == switch:
+                    dst = node2
+                    interface = interface.link.intf1
+                else:
+                    dst = node1
+                    interface = interface.link.intf2
+                bw = topo.bandwidths[switch.name][dst.name] * 1000000
+                # Create QoS and Queues
+                # normal <= 0.5bw
+                # premium >= 0.8bw
+                os.system("sudo ovs-vsctl -- set Port %s qos=@newqos \
+                        -- --id=@newqos create QoS type=linux-htb other-config:max-rate=%i queues=0=@q0,1=@q1 \
+                        -- --id=@q0 create queue other-config:min-rate=%i \
+                        -- --id=@q1 create queue other-config:max-rate=%i" % (interface.name, bw, int(0.8 * bw), int(0.5 * bw)))
 
     info('** Running CLI\n')
     CLI(net)
@@ -61,7 +85,6 @@ def stopNetwork():
         # Remove QoS and Queues
         os.system('sudo ovs-vsctl --all destroy Qos')
         os.system('sudo ovs-vsctl --all destroy Queue')
-
 
 if __name__ == '__main__':
     # Force cleanup on exit by registering a cleanup function
