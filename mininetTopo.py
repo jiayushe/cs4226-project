@@ -23,8 +23,7 @@ class TreeTopo(Topo):
     
     def parseTopo(self, filename):
         file = open(filename, "r")
-        line = file.readline().strip()
-        n_host, n_switch, n_link = line.split(" ")
+        n_host, n_switch, n_link = file.readline().strip().split(" ")
         # Add hosts
         for i in range(int(n_host)):
             self.addHost("h%d" % (i + 1))
@@ -34,8 +33,7 @@ class TreeTopo(Topo):
             self.addSwitch("s%d" % (i + 1), **sconfig)
         # Add links
         for i in range(int(n_link)):
-            line = file.readline().strip()
-            src, dst, bw = line.split(",")
+            src, dst, bw = file.readline().strip().split(",")
             self.addLink(src, dst)
             if src not in self.bandwidths:
                 self.bandwidths[src] = {}

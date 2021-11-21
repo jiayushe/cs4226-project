@@ -31,8 +31,7 @@ class Controller(EventMixin):
     
     def parsePolicy(self, filename):
         file = open(filename, "r")
-        line = file.readline().strip()
-        n_fw, n_premium = line.split(" ")
+        n_fw, n_premium = file.readline().strip().split(" ")
         # Add firewalls
         for i in range(int(n_fw)):
             line = file.readline().strip()
@@ -85,29 +84,32 @@ class Controller(EventMixin):
         def forward():
             if dpid not in self.mac_table:
                 self.mac_table[dpid] = {}
+            if src not in self.mac_table[dpid]:
+                # update src in mac table if not yet seen
+                self.mac_table[dpid][src] = (inport, time.time())
             if dst in self.mac_table[dpid] and time.time() - self.mac_table[dpid][dst][1] > 30.0:
+                # remove dst from mac table if expired
                 self.mac_table[dpid].pop(dst)
             if dst in self.mac_table[dpid]:
                 outport = self.mac_table[dpid][dst][0]
                 q_id = Q_PREMIUM if ip_src in self.premiums and ip_dst in self.premiums else Q_NORMAL
                 install_enqueue(outport, q_id)
             else:
-                # update mac table only when dst is not seen
-                self.mac_table[dpid][src] = (inport, time.time())
                 flood()
         
         forward()
 
     def _handle_ConnectionUp(self, event):
-        dpid = dpid_to_str(event.dpid)
-        log.info("Switch %s has come up.", dpid)
+        log.info("Switch %s has come up.", dpid_to_str(event.dpid))
         
         # Send the firewall policies to the switch
         def sendFirewallPolicy(policy):
             src, dst, port = policy
             msg = of.ofp_flow_mod()
             msg.priority = P_FIREWALL
+            # IPv4
             msg.match.dl_type = 0x800
+            # TCP
             msg.match.nw_proto = 6
             if src is not None:
                 msg.match.nw_src = IPAddr(src)
